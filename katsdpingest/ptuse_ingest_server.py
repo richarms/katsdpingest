@@ -3,7 +3,7 @@ import spead2
 import spead2.recv
 import spead2.recv.trollius
 import katcp
-from katcp.kattypes import request, return_reply
+from katcp.kattypes import request, return_reply, Str
 import os
 import os.path
 import trollius
@@ -464,7 +464,7 @@ class _CaptureSession(object):
 
             try:
                 data = pyfits.open("%s.writing/%s"%(self.save_dir, data_files[index]), mode="update", memmap=True, save_backup=False)
-                target = [s.strip() for s in self.args.telstate.get("data_target").split(",")]
+                target = [s.strip() for s in self.args.telstate.get("cbf_target").split(",")]
                 hduPrimary=data[0].header
                 start_time = Time([hduPrimary['STT_IMJD'] + hduPrimary['STT_SMJD'] / 3600.0 / 24.0],format='mjd')
                 start_time.format = 'isot'
@@ -621,9 +621,9 @@ class KatcpCaptureServer(CaptureServer, katcp.DeviceServer):
     def setup_sensors(self):
         pass
 
-    @request()
+    @request(Str(optional=True))
     @return_reply()
-    def request_capture_init(self, sock):
+    def request_capture_init(self, sock, capture_block_id=None):
         """Start capture to file."""
         if self.capturing:
             return ('fail', 'already capturing')
