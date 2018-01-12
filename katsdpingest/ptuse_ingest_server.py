@@ -81,20 +81,24 @@ class _CaptureSession(object):
         self._dspsr_process = None
         self._speadmeta_process = None
         self._dada_header_process = None
-
+        _logger.info("SANITY CHECK")
         _logger.info("Grabbing script_args")
-
-        config = args.telstate.get('config')
-        ant_mask = config['antenna_mask']
-        ants = config['antenna_mask'].split(',')
-
+        print ("telstate keys")
+        print (self.args.telstate.keys())
+        config = eval(str(args.telstate.get('sdp_config')))
+        ants = config['inputs']['i0_antenna_channelised_voltage']['antennas']
         self.script_args = args.telstate.get('obs_script_arguments')
+        print ("obs_script_arguments")
+        print (self.script_args)
         self.driftscan = self.script_args['drift_scan']
+
+        print ("backend")
+        print (self.script_args['backend'])
         
         #script_args is only populated for beamformer observations.
         if self.script_args and self.script_args['backend'] != '':
             _logger.info ("Running with script args of %s"%str(self.script_args))
-            pubsub_thread = PubSubThread(1,eval(config['stream_sources'])['cam.http']['camdata'],_logger,self,ants)
+            pubsub_thread = PubSubThread(1,config['inputs']['camdata']['url'],_logger,self,ants)
             pubsub_thread.start()
             backend = self.script_args['backend']
             bandwidth = self.script_args['beam_bandwidth']
@@ -107,9 +111,10 @@ class _CaptureSession(object):
             elif 'digifits' in backend and bandwidth >= 642:
                 _logger.info("Bandwidth set to 642 as this is the max bandwidth digifits can handle with p=1")
                 bandwidth = 642
-
+            pol1 = config['outputs']['beamformer']['src_streams'][0]
+            pol2 = config['outputs']['beamformer']['src_streams'][1]
             _logger.info("ben_y")
-            beam_y_multicast = eval(config['stream_sources'])["cbf.tied_array_channelised_voltage"]['i0.tied-array-channelised-voltage.0y'].split(":")[1][2:]
+            beam_y_multicast = config['inputs'][pol1]['url'].split(":")[1][2:]
             _logger.info("after")
             total_parts=int(beam_y_multicast.split('+')[-1])+1
             part_bandwidth=856.0/total_parts
@@ -136,11 +141,11 @@ class _CaptureSession(object):
             elif ("dada_dbdisk" in self.backend):
                 self._create_dada_dbdisk()
             time.sleep(1)
-            beam_x_multicast = eval(config['stream_sources'])["cbf.tied_array_channelised_voltage"]['i0.tied-array-channelised-voltage.0x'].split(":")[1][2:]
-            beam_y_multicast = eval(config['stream_sources'])["cbf.tied_array_channelised_voltage"]['i0.tied-array-channelised-voltage.0y'].split(":")[1][2:]
+            beam_x_multicast = config['inputs'][pol1]['url'].split(":")[1][2:]
+            beam_y_multicast = config['inputs'][pol2]['url'].split(":")[1][2:]
             _logger.info("Subscribing to beam_x on %s"%beam_x_multicast)
             _logger.info("Subscribing to beam_y on %s"%beam_y_multicast)
-            data_port = int(eval(config['stream_sources'])["cbf.tied_array_channelised_voltage"]['i0.tied-array-channelised-voltage.0x'].split(":")[-1])
+            data_port = config['inputs'][pol1]['url'].split(":")[-1]
             self._run_future = trollius.async(self._run(bandwidth=bandwidth, obs_length = self.script_args['target_duration'], centre_freq=self.script_args["beam_centre_freq"], targets=self.script_args["targets"], cores=args.affinity[1:], interface=args.interface, halfband=True, beam_x_multicast=beam_x_multicast, beam_y_multicast=beam_y_multicast, data_port=data_port), loop=self._loop)
 
     def _create_dada_buffer(self, bufsz, dadaId = 'dada', numaCore = 1, nBuffers =32):
@@ -425,7 +430,7 @@ class _CaptureSession(object):
             self._dspsr_process.send_signal(signal.SIGTERM)
             _logger.info("dspsr did not stop")
         if self._dada_header_process: 
-            comm = self._dada_header_process.communicate()
+            comm = self._dada_header_process.communicate(timeout=30)
             try:
                 dada_header = dict([d.split() for d in comm[0].split('\n')][:-1])
             except:
