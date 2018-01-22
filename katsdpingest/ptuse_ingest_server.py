@@ -121,13 +121,13 @@ class _CaptureSession(object):
             n_parts = bandwidth/part_bandwidth
             resolution = 4194304 * n_parts / total_parts
             _logger.info("BEFORE BUFFER")
+            self._create_dada_header()
             if self.backend in "dada_dbdisk": #Make massive RAM buffer, but first we need to increase RAM provided by Mesos
                 self._create_dada_buffer(resolution*bandwidth/856*16*4, nBuffers=64)
             else:
                 _logger.info("CREATING BUFFER")
                 self._create_dada_buffer(resolution*bandwidth/856*16*4, nBuffers=64)
             _logger.info("Created dada_buffer")
-            self._create_dada_header()
             if ("digifits" in self.backend):
                 if (self.script_args['backend_args']):
                     self._create_digifits(args.affinity[0], backend_args=backend_args)
@@ -162,11 +162,13 @@ class _CaptureSession(object):
         dada_buffer_process = subprocess.Popen(
         cmd, stdout=subprocess.PIPE
         )
+        _logger.info (cmd)
         dada_buffer_process.wait()
         _logger.info("dada buffer creation output :")
         _logger.info(dada_buffer_process.communicate())
 
     def _create_dada_header(self):
+        _logger.info("HEADER CREATION")
         cmd = ['dada_header']
         self._dada_header_process = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -340,11 +342,16 @@ class _CaptureSession(object):
         y_ip = int2ip(ip2int(beam_y_multicast.split('+')[0]) + bottom_chan_ip)
         start_chan = bottom_chan_ip*part_chan
         end_chan = start_chan + n_parts * part_chan - 1
-        replace = "ADC_SYNC_TIME       %s"%self.args.telstate.get("cbf_sync_time") 
+        replace = "ADC_SYNC_TIME       %s"%self.args.telstate.get("sdp_l0_continuum_sync_time")
+        #for k in self.args.telstate.keys():
+        #    _logger.info("%s : %s)"%(k,str(self.args.telstate.get(k))))
         _logger.info ("Config file is %s"%c_file)
 
         with open('%s.template'%(c_file), 'r+') as content_file:
+            _logger.info("Updating config")
+            _logger.info(content)
             content = content_file.read()
+            _logger.info(content)
             insert = "BW                  %f"%(n_parts*part_bandwidth)
             content = re.sub("BW                  856", "BW                  %f"%(n_parts*part_bandwidth),content)
             content = re.sub("BYTES_PER_SECOND    3424000000.0","BYTES_PER_SECOND    %f"%(n_parts*part_bytes_p_s),content)
@@ -359,8 +366,8 @@ class _CaptureSession(object):
             content = re.sub("DATA_MCAST_0        239.9.3.30", "DATA_MCAST_0        %s+%i"%(x_ip,n_parts-1), content)
             content = re.sub("DATA_MCAST_1        239.9.3.31", "DATA_MCAST_1        %s+%i"%(y_ip,n_parts-1), content)
             content = re.sub("SOURCE              J0835-4510", "SOURCE              %s"%targets[0], content)
-            content = re.sub("DATA_PORT_0         7148", "DATA_PORT_0         %i"%data_port, content)
-            content = re.sub("DATA_PORT_1         7148", "DATA_PORT_1         %i"%data_port, content)
+            content = re.sub("DATA_PORT_0         7148", "DATA_PORT_0         %s"%data_port, content)
+            content = re.sub("DATA_PORT_1         7148", "DATA_PORT_1         %s"%data_port, content)
             _logger.info ("Running with : \n%s"%content)
         with open (c_file, 'r+') as content_file:
             content_file.seek(0)
@@ -430,7 +437,7 @@ class _CaptureSession(object):
             self._dspsr_process.send_signal(signal.SIGTERM)
             _logger.info("dspsr did not stop")
         if self._dada_header_process: 
-            comm = self._dada_header_process.communicate(timeout=30)
+            comm = self._dada_header_process.communicate()
             try:
                 dada_header = dict([d.split() for d in comm[0].split('\n')][:-1])
             except:
