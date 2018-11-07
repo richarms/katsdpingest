@@ -18,8 +18,8 @@ numpy
 pbr
 ply
 ProxyTypes==0.9
-py
-pycuda
+py==1.7.0
+pycuda==2018.1.1
 pytest
 pytools
 redis
@@ -35,10 +35,10 @@ unittest2
 zope.interface==4.4.2
 pkginfo
 astropy==1.2.1
-fakeredis==0.8.2
+fakeredis==0.10.2
 fakenewsredis==0.9.2
 ipaddress==1.0.18
-llvmlite==0.20.0
+llvmlite==0.22.0
 enum34==1.1.6
 numba
 omnijson==0.1.2
@@ -58,4 +58,6 @@ git+ssh://git@github.com/ska-sa/katsdpdisp#egg=katsdpdisp
 git+ssh://git@github.com/ska-sa/katsdptelstate#egg=katsdptelstate
 git+ssh://git@github.com/ska-sa/katversion
 git+ssh://git@github.com/ska-sa/katportalclient
-
+git+ssh://git@github.com/ska-sa/katsdpservices
+msgpack==0.5.6
+pygelf==0.3.4

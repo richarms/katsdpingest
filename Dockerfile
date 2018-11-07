@@ -1,10 +1,14 @@
-FROM sdp-docker-registry.kat.ac.za:5000/docker-base-gpu
+FROM sdp-docker-registry.kat.ac.za:5000/docker-base-gpu-build
 
 MAINTAINER Christopher Schollar "cschollar@ska.ac.za"
 
 # Install dependencies.
+
 COPY requirements.txt /tmp/install/requirements.txt
-RUN install-requirements.py -d ~/docker-base/base-requirements.txt -d ~/docker-base/gpu-requirements.txt -r /tmp/install/requirements.txt
+
+ENV PATH="$PATH_PYTHON2" VIRTUAL_ENV="$VIRTUAL_ENV_PYTHON2"
+
+RUN install-requirements.py --default-versions /home/kat/docker-base/gpu-requirements.txt --default-versions /home/kat/docker-base/base-requirements.txt  -r /tmp/install/requirements.txt
 
 USER root
 
@@ -31,7 +35,9 @@ RUN apt-get install -y autotools-dev \
                       libhwloc-dev \
                       libboost-program-options1.58.0 \
                       libboost-program-options1.58-dev \
-                      pgplot5
+                      pgplot5 \ 
+                      gfortran \
+                      rsync
 RUN mkdir /usr/local/kat
 RUN chown kat:kat /usr/local/kat
 
