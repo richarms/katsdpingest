@@ -1,4 +1,4 @@
-FROM sdp-docker-registry.kat.ac.za:5000/docker-base-gpu-build
+FROM docker-base-gpu-build
 
 MAINTAINER Christopher Schollar "cschollar@ska.ac.za"
 
@@ -35,7 +35,7 @@ RUN apt-get install -y autotools-dev \
                       libhwloc-dev \
                       libboost-program-options1.58.0 \
                       libboost-program-options1.58-dev \
-                      pgplot5 \ 
+                      pgplot5 \
                       gfortran \
                       rsync
 RUN mkdir /usr/local/kat
@@ -47,7 +47,7 @@ ENV PSRHOME /usr/local/kat/pulsar
 ENV LOGIN_ARCH linux_64
 ENV PACKAGES $PSRHOME/$LOGIN_ARCH
 ENV CFLAGS "-mtune=native -O3 -ffast-math -pthread -fPIC"
-ENV CXXFLAGS "-mtune=native -O3 -ffast-math -pthread"
+ENV CXXFLAGS "-mtune=native -O3 -ffast-math -pthread -fPIC"
 ENV CUDA_NVCC_FLAGS "-O3 -arch sm_30 -m64 -lineinfo"
 
 # psrcat
@@ -93,7 +93,7 @@ RUN rsync -at T2runtime/* $TEMPO2/
 ###############################
 # PSRCHIVE
 WORKDIR $PSRHOME
-RUN git clone https://git.code.sf.net/p/psrchive/code psrchive 
+RUN git clone https://git.code.sf.net/p/psrchive/code psrchive
 WORKDIR $PSRHOME/psrchive
 
 ENV PSRCHIVE $PSRHOME/psrchive
@@ -118,13 +118,31 @@ RUN chown -R kat:kat .
 RUN chmod -R a+r .
 
 ###############################
-# PSRDADA build 
+# SPEAD2
+WORKDIR $PSRHOME
+RUN git clone https://github.com/ska-sa/spead2
+
+WORKDIR $PSRHOME/spead2
+RUN ./bootstrap.sh --no-python
+RUN ./configure
+WORKDIR $PSRHOME/spead2/src
+RUN make -j 16
+RUN cp ./libspead2.a $PSRHOME/$LOGIN_ARCH/lib/
+RUN mkdir $PSRHOME/$LOGIN_ARCH/include/spead2
+#RUN ls ../include/spead2/*.h
+RUN cp ../include/spead2/*.h $PSRHOME/$LOGIN_ARCH/include/spead2/
+RUN cp spead2_send spead2_bench spead2_recv $PSRHOME/$LOGIN_ARCH/bin/
+
+###############################
+# PSRDADA build
 RUN touch $HOME/.cvspass
 RUN mkdir $PSRHOME/psrdada
 WORKDIR $PSRHOME
-COPY ./beamformer_docker_software/psrdada ./psrdada
+#COPY ./beamformer_docker_software/psrdada ./psrdada
 #RUN cvs -d:pserver:anonymous@psrdada.cvs.sourceforge.net:/cvsroot/psrdada login
 #RUN cvs -z3 -d:pserver:anonymous@psrdada.cvs.sourceforge.net:/cvsroot/psrdada co -P psrdada
+
+RUN git clone git://git.code.sf.net/p/psrdada/code psrdada
 
 RUN chown -R kat .
 RUN chown -R kat $PSRHOME/$LOGIN_ARCH
@@ -145,34 +163,6 @@ RUN make clean
 RUN make -j 16
 RUN make install
 
-###############################
-# SPEAD2
-#WORKDIR $PSRHOME
-#RUN git clone https://github.com/ska-sa/spead2
-
-#WORKDIR $PSRHOME/spead2
-#RUN ./bootstrap.sh
-#RUN ./configure
-#WORKDIR $PSRHOME/spead2/src 
-#RUN make -j 16
-#RUN cp ./libspead2.a $PSRHOME/$LOGIN_ARCH/lib/
-#RUN mkdir $PSRHOME/$LOGIN_ARCH/include/spead2
-#RUN ls ../include/spead2/*.h
-#RUN cp ../include/spead2/*.h $PSRHOME/$LOGIN_ARCH/include/spead2/
-#RUN cp spead2_bench spead2_recv $PSRHOME/$LOGIN_ARCH/bin/
-
-RUN mkdir $PSRHOME/spead2
-WORKDIR $PSRHOME/spead2
-COPY ./beamformer_docker_software/spead2 .
-
-WORKDIR $PSRHOME/spead2/src
-RUN make -j 16
-RUN cp ./libspead2.a $PSRHOME/$LOGIN_ARCH/lib/
-RUN mkdir $PSRHOME/$LOGIN_ARCH/include/spead2
-RUN cp ./*.h $PSRHOME/$LOGIN_ARCH/include/spead2/
-RUN cp test_recv test_send test_ringbuffer spead2_bench spead2_recv $PSRHOME/$LOGIN_ARCH/bin/
-
-
 ###################################
 # SPIP Built
 RUN echo "build form here"
@@ -184,7 +174,7 @@ ENV LDFLAGS -lstdc++
 RUN ./bootstrap
 RUN ./configure --prefix=$PSRHOME/$LOGIN_ARCH --with-spead2-dir=$PSRHOME/$LOGIN_ARCH
 RUN make clean
-RUN make 
+RUN make
 RUN make install
 ENV LDFLAGS ""
 
@@ -207,7 +197,6 @@ ENV PGPLOT_FONT $PGPLOT_DIR/grfont.dat
 ENV CFLAGS -lstdc++
 RUN ./bootstrap
 RUN echo "dada dummy fits kat sigproc" > backends.list
-#RUN ./configure --prefix=$PSRHOME/$LOGIN_ARCH
 RUN ls $PSRHOME/psrdada
 RUN ./configure --prefix=$PSRHOME/$LOGIN_ARCH --x-libraries=/usr/lib/x86_64-linux-gnu CPPFLAGS="-I/usr/local/cuda/include -I"$PSRHOME/psrdada"/install/include" LDFLAGS="-L/usr/local/cuda/lib64 -L/usr/local/cuda/lib64/stubs" LIBS="-lpgplot -lcpgplot -lcuda -lstdc++"
 RUN make clean
