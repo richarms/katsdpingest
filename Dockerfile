@@ -208,11 +208,7 @@ RUN pip install pyfits
 WORKDIR $HOME
 RUN mkdir /usr/local/kat/pulsar/psrchive/share/
 RUN cp $PSRHOME/psrchive/Base/Formats/PSRFITS/psrheader.fits /usr/local/kat/pulsar/psrchive/share/
-COPY ./beamformer_docker_software/hardware_cbf_2048chan_2pol.cfg.template $HOME
-COPY ./beamformer_docker_software/hardware_cbf_4096chan_2pol.cfg.template $HOME
-COPY ./beamformer_docker_software/hardware_cbf_4096chan_2pol.cfg $HOME
-COPY ./beamformer_docker_software/hardware_cbf_2048chan_2pol.cfg $HOME
-COPY ./beamformer_docker_software/dada.info $HOME
+COPY ./beamformer_docker_software/*.template $HOME/
 
 
 # Install the current package

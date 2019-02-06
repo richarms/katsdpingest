@@ -1,0 +1,17 @@
+ADC_SAMPLE_RATE     1712000000
+BACKEND_PHASE       +1
+BW                  856.0
+BYTES_PER_SECOND    3424000000
+DSB                 1
+HDR_SIZE            4096
+HDR_VERSION         1.0
+INSTRUMENT          MKBF
+ITRF                5109318.841,2006836.367,-3238921.775
+MODE                PSR
+NBIT                8
+NCHAN_PER_STREAM    16
+NDIM                2
+NPOL                2
+RCVR_HAND           -1
+RECEIVER            KAT
+TELESCOPE           MeerKAT

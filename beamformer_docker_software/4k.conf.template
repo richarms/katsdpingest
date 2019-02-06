@@ -1,0 +1,6 @@
+RESOLUTION          2097152
+NCHAN               4096
+START_CHANNEL       0
+END_CHANNEL         4095
+FREQ                1283.58203125
+TSAMP               4.78504672897196

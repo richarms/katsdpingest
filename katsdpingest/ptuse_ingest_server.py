@@ -81,7 +81,7 @@ class _CaptureSession(object):
         self._dspsr_process = None
         self._speadmeta_process = None
         self._dada_header_process = None
-        _logger.info("SANITY CHECK")
+        self.dadaKeys = []
         _logger.info("Grabbing script_args")
         print ("telstate keys")
         print (self.args.telstate.keys())
@@ -94,7 +94,7 @@ class _CaptureSession(object):
 
         print ("backend")
         print (self.script_args['backend'])
-        
+
         #script_args is only populated for beamformer observations.
         if self.script_args and self.script_args['backend'] != '':
             _logger.info ("Running with script args of %s"%str(self.script_args))
@@ -105,12 +105,12 @@ class _CaptureSession(object):
             self.backend = self.script_args['backend']
             backend_args=self.script_args['backend_args']
             _logger.info("Bandwidth = %d"%bandwidth)
-            if 'digifits' in backend and backend_args and '-p 4' in backend_args and bandwidth >= 428:
-                _logger.info("Bandwidth set to 428 as this is the max bandwidth digifits can handle with p=4") 
-                bandwidth = 428
-            elif 'digifits' in backend and bandwidth >= 642:
-                _logger.info("Bandwidth set to 642 as this is the max bandwidth digifits can handle with p=1")
-                bandwidth = 642
+            # if 'digifits' in backend and backend_args and '-p 4' in backend_args and bandwidth >= 428:
+            #     _logger.info("Bandwidth set to 428 as this is the max bandwidth digifits can handle with p=4")
+            #     bandwidth = 428
+            # elif 'digifits' in backend and bandwidth >= 642:
+            #     _logger.info("Bandwidth set to 642 as this is the max bandwidth digifits can handle with p=1")
+            #     bandwidth = 642
             pol1 = config['outputs']['beamformer']['src_streams'][0]
             pol2 = config['outputs']['beamformer']['src_streams'][1]
             _logger.info("ben_y")
@@ -121,12 +121,10 @@ class _CaptureSession(object):
             n_parts = bandwidth/part_bandwidth
             resolution = 4194304 * n_parts / total_parts
             _logger.info("BEFORE BUFFER")
-            self._create_dada_header()
-            if self.backend in "dada_dbdisk": #Make massive RAM buffer, but first we need to increase RAM provided by Mesos
-                self._create_dada_buffer(resolution*bandwidth/856*16*4, nBuffers=64)
-            else:
-                _logger.info("CREATING BUFFER")
-                self._create_dada_buffer(resolution*bandwidth/856*16*4, nBuffers=64)
+            self._create_dada_header('a000')
+            self._create_dada_header('a002')
+            self._create_dada_buffer(resolution*bandwidth/856*16*4, nBuffers=64, dadaKey='a000')
+            self._create_dada_buffer(resolution*bandwidth/856*16*4, nBuffers=64, dadaKey='a002')
             _logger.info("Created dada_buffer")
             if ("digifits" in self.backend):
                 if (self.script_args['backend_args']):
@@ -135,7 +133,8 @@ class _CaptureSession(object):
                     self._create_digifits(args.affinity[0])
             elif ("dspsr" in self.backend):
                 if (backend_args):
-                    self._create_dspsr(args.affinity[0], backend_args=backend_args)
+                    self._create_dspsr(args.affinity[0], backend_args=backend_args, dadaKey='a000')
+                    self._create_dspsr(args.affinity[0], backend_args=backend_args, dadaKey='a002')
                 else:
                     self._create_dspsr(args.affinity[0])
             elif ("dada_dbdisk" in self.backend):
@@ -146,9 +145,10 @@ class _CaptureSession(object):
             _logger.info("Subscribing to beam_x on %s"%beam_x_multicast)
             _logger.info("Subscribing to beam_y on %s"%beam_y_multicast)
             data_port = config['inputs'][pol1]['url'].split(":")[-1]
-            self._run_future = trollius.async(self._run(bandwidth=bandwidth, obs_length = self.script_args['target_duration'], centre_freq=self.script_args["beam_centre_freq"], targets=self.script_args["targets"], cores=args.affinity[1:], interface=args.interface, halfband=True, beam_x_multicast=beam_x_multicast, beam_y_multicast=beam_y_multicast, data_port=data_port), loop=self._loop)
+            self._run_future = trollius.async(self._run(bandwidth=bandwidth, obs_length = self.script_args['target_duration'], centre_freq=self.script_args["beam_centre_freq"], targets=self.script_args["targets"], cores=args.affinity[1:], interface=args.interface, halfband=True, beam_x_multicast=beam_x_multicast, beam_y_multicast=beam_y_multicast, data_port=data_port), loop=self._loop, dadaKey="a000")
+            self._run_future = trollius.async(self._run(bandwidth=bandwidth, obs_length = self.script_args['target_duration'], centre_freq=self.script_args["beam_centre_freq"], targets=self.script_args["targets"], cores=args.affinity[1:], interface=args.interface, halfband=True, beam_x_multicast=beam_x_multicast, beam_y_multicast=beam_y_multicast, data_port=data_port), loop=self._loop, dadaKey="a002")
 
-    def _create_dada_buffer(self, bufsz, dadaId = 'dada', numaCore = 1, nBuffers =32):
+    def _create_dada_buffer(self, bufsz, dadaKey = 'dada', numaCore = 1, nBuffers =32):
         """Create the dada buffer. Must be run before capture and dbdisk.'
 
         Parameters
@@ -158,7 +158,7 @@ class _CaptureSession(object):
         numaCore :
             NUMA node to attach dada buffer to
         """
-        cmd = ['dada_db', '-k', dadaId, '-b', str(bufsz),'-c', '%d'%self.args.affinity[0],'-p','-l','-n', '%d'%nBuffers]
+        cmd = ['dada_db', '-k', dadaKey, '-b', str(bufsz),'-c', '%d'%self.args.affinity[0],'-p','-l','-n', '%d'%nBuffers]
         dada_buffer_process = subprocess.Popen(
         cmd, stdout=subprocess.PIPE
         )
@@ -167,12 +167,12 @@ class _CaptureSession(object):
         _logger.info("dada buffer creation output :")
         _logger.info(dada_buffer_process.communicate())
 
-    def _create_dada_header(self):
+    def _create_dada_header(self, dadaKey):
         _logger.info("HEADER CREATION")
-        cmd = ['dada_header']
-        self._dada_header_process = subprocess.Popen(
+        cmd = ['dada_header', '-k', dadaKey]
+        self._dada_header_process.append(subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
+        ))
 
     def _create_dada_dbdisk (self, dadaId = 'dada', cpuCore = 1, outputDir = '/data'):
         """Create the dada_dbdisk process which writes data from dada buffer to disk.
@@ -219,8 +219,7 @@ class _CaptureSession(object):
         opts = parser.parse_args (backend_args.split(" "))
         opts_list = [list(i) for i in  zip(vars(opts).keys(),vars(opts).values())]
         self.n_pol = "eish"
-        return [str(item) for sublist in opts_list for item in sublist if (sublist[1] != None and sublist[1] != False and item != True)] 
-                
+        return [str(item) for sublist in opts_list for item in sublist if (sublist[1] != None and sublist[1] != False and item != True)]
 
     def _create_digifits (self, core, backend_args = '-t 0.000153121770088 -p 1'):
         passed_args = self.get_digifits_args(backend_args)
@@ -243,7 +242,7 @@ class _CaptureSession(object):
     def get_dspsr_args(self, backend_args):
         _logger.info(backend_args)
         if backend_args:
-            parser = argparse.ArgumentParser(description='Grab arguments') 
+            parser = argparse.ArgumentParser(description='Grab arguments')
             parser.add_argument('-overlap', dest='-overlap', action='store_true', help='disable input buffering')
             parser.add_argument('-header', dest='-header', type=str, help='command line arguments are header values (not filenames)')
             parser.add_argument('-S', dest='-S', type=int, help='start processing at t=seek seconds')
@@ -299,23 +298,35 @@ class _CaptureSession(object):
         else:
             return []
 
-    def _create_dspsr(self, core, backend_args="-D 0 -L 10"):
-        
-        passed_args = self.get_dspsr_args(backend_args)
-        passed_args.append(["-D","0","-Q","-cuda","0","/home/kat/dada.info"])
+    def _create_dspsr(self, core, backend_args="-D 0 -L 10", dadaKey="dada"):
 
-        self.save_dir = "/data/%.0far"%time.time()
-        os.mkdir("%s.writing"%self.save_dir)
+        info_file = '/home/kat/{}.info'.format(dadaKey)
+
+        with open('/home/kat/dada.info.template', 'r+') as content_file:
+            content = content_file.read()
+            content = content.replace("REPLACE", dadaKey)
+        with open (info_file, 'r+') as content_file:
+            content_file.seek(0)
+            content_file.write(content)
+            content_file.truncate()
+
+        # passed_args = self.get_dspsr_args(backend_args)
+        # passed_args.append(["-D","0","-Q","-cuda","0",info_file])
+
+        self.save_dir = "/data/{.0f}ar".format(time.time())
+        os.mkdir("{}.writing".format(self.save_dir))
+        os.mkdir("{}.writing/{}".format(self.save_dir, dadaKey))
+        self.dadaKeys.append(dadaKey)
         #if "profile" in self.backend:
         #    cmd = ["nvprof","--analysis-metrics","--export-profile","%s.writing/dspsr.nvprof"%self.save_dir,"numactl","-C",str(core),"/usr/local/kat/pulsar/linux_64/bin/dspsr", "-D", "0", "-Q", "-minram", "512", "-L", "10", "-b", "1024", "-cuda", "0", "/home/kat/dada.info"]
         #else:
-        cmd = ["numactl","-C",str(core),"/usr/local/kat/pulsar/linux_64/bin/dspsr", "-D", "0", "-Q", "-minram", "512", "-L", "10", "-b", "1024", "-cuda", "0", "/home/kat/dada.info"]
-        with open("%s.writing/dspsr.log"%self.save_dir,"a") as logfile:
+        cmd = ["numactl","-C",str(core),"/usr/local/kat/pulsar/linux_64/bin/dspsr", "-D", "0", "-Q", "-minram", "512", "-L", "10", "-b", "1024", "-cuda", "0", info_file]
+        with open("{}.writing/{}/dspsr.log".format(self.save_dir, dadaKey),"a") as logfile:
             _logger.info("Starting dspsr with args:")
             _logger.info(cmd)
-            self._dspsr_process = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=logfile, stderr=logfile, cwd="%s.writing"%self.save_dir
-            )
+            self._dspsr_process.append(subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stdout=logfile, stderr=logfile,
+                cwd="{}.writing/{}".format(self.save_dir, dadaKey)))
 
     @trollius.coroutine
     def _run(self, bandwidth, obs_length, centre_freq, targets, cores,interface, backend_args=None, halfband=False, interface_ip="10.100.205.11", beam_x_multicast="239.9.3.30", beam_y_multicast="239.9.3.31", data_port="7148"):
@@ -324,56 +335,46 @@ class _CaptureSession(object):
         content = ""
 
         total_parts=int(beam_y_multicast.split('+')[-1])+1
-        part_bandwidth=856.0/total_parts
-        part_chan=4096/total_parts
-        part_bytes_p_s=3424000000.0/total_parts
-        n_parts = bandwidth/part_bandwidth
-        part_centre = (centre_freq)/part_bandwidth*part_bandwidth            
-        resolution = 4194304 * n_parts / total_parts    
- 
-        c_file = '/home/kat/hardware_cbf_4096chan_2pol.cfg'
 
-        import struct, socket
-        ip2int = lambda ipstr: struct.unpack('!I', socket.inet_aton(ipstr))[0]
-        int2ip = lambda n: socket.inet_ntoa(struct.pack('!I', n))
-
-        bottom_chan_ip = (part_centre - 856 - bandwidth / 2) / part_bandwidth
-        x_ip = int2ip(ip2int(beam_x_multicast.split('+')[0]) + bottom_chan_ip)
-        y_ip = int2ip(ip2int(beam_y_multicast.split('+')[0]) + bottom_chan_ip)
-        start_chan = bottom_chan_ip*part_chan
-        end_chan = start_chan + n_parts * part_chan - 1
+        c_file = '/home/kat/capture.conf'
         replace = "ADC_SYNC_TIME       %s"%self.args.telstate.get("sdp_l0_continuum_sync_time")
         #for k in self.args.telstate.keys():
         #    _logger.info("%s : %s)"%(k,str(self.args.telstate.get(k))))
         _logger.info ("Config file is %s"%c_file)
 
-        with open('%s.template'%(c_file), 'r+') as content_file:
-            _logger.info("Updating config")
-            _logger.info(content)
+        config = ""
+
+        with open("common.conf.template", 'r+') as content_file:
             content = content_file.read()
-            _logger.info(content)
-            insert = "BW                  %f"%(n_parts*part_bandwidth)
-            content = re.sub("BW                  856", "BW                  %f"%(n_parts*part_bandwidth),content)
-            content = re.sub("BYTES_PER_SECOND    3424000000.0","BYTES_PER_SECOND    %f"%(n_parts*part_bytes_p_s),content)
-            content = re.sub("END_CHANNEL         4095","END_CHANNEL         %i"%end_chan, content)
-            content = re.sub("START_CHANNEL       0","START_CHANNEL       %i"%start_chan,content)
-            content = re.sub("NCHAN               4096","NCHAN               %i"%(n_parts*part_chan),content)
-            content = re.sub("RESOLUTION          4194304","RESOLUTION          %i"%resolution, content)
-            content = re.sub("ADC_SYNC_TIME",replace,content)
-            content = re.sub("FREQ                1283.8955078125", "FREQ                %f"%part_centre, content)
-            content = re.sub("DATA_HOST_0         10.100.205.10", "DATA_HOST_0         %s"%_get_interface_address(interface), content)
-            content = re.sub("DATA_HOST_1         10.100.205.10", "DATA_HOST_1         %s"%_get_interface_address(interface), content)
-            content = re.sub("DATA_MCAST_0        239.9.3.30", "DATA_MCAST_0        %s+%i"%(x_ip,n_parts-1), content)
-            content = re.sub("DATA_MCAST_1        239.9.3.31", "DATA_MCAST_1        %s+%i"%(y_ip,n_parts-1), content)
-            content = re.sub("SOURCE              J0835-4510", "SOURCE              %s"%targets[0], content)
-            content = re.sub("DATA_PORT_0         7148", "DATA_PORT_0         %s"%data_port, content)
-            content = re.sub("DATA_PORT_1         7148", "DATA_PORT_1         %s"%data_port, content)
-            _logger.info ("Running with : \n%s"%content)
+            config += content
+
+        with open("4k.conf.template", 'r+') as content_file:
+            content = content_file.read()
+            config += content
+
+        with open("dynamic.conf.template", 'r+') as content_file:
+            content = content_file.read()
+            content = content.replace("ADC_SYNC_TIME", replace)
+            content = content.replace("NCHAN_PER_STREAM", "NCHAN_PER_STREAM    {}".format(4096/total_parts))
+            content = content.replace("META_HOST_0", "META_HOST_0    {}".format(_get_interface_address(interface)))
+            content = content.replace("META_HOST_1", "META_HOST_1    {}".format(_get_interface_address(interface)))
+            content = content.replace("META_MCAST_0", "META_MCAST_0    {}".format(beam_x_multicast))
+            content = content.replace("META_MCAST_1", "META_MCAST_1    {}".format(beam_y_multicast))
+            content = content.replace("META_PORT_0", "META_PORT_0    {}".format(data_port))
+            content = content.replace("META_PORT_1", "META_PORT_1    {}".format(data_port))
+            content = content.replace("DATA_HOST_0", "DATA_HOST_0    {}".format(_get_interface_address(interface)))
+            content = content.replace("DATA_HOST_1", "DATA_HOST_1    {}".format(_get_interface_address(interface)))
+            content = content.replace("DATA_MCAST_0", "DATA_MCAST_0    {}".format(beam_x_multicast))
+            content = content.replace("DATA_MCAST_1", "DATA_MCAST_1    {}".format(beam_y_multicast))
+            content = content.replace("DATA_PORT_0", "DATA_PORT_0    {}".format(data_port))
+            content = contnet.replace("DATA_PORT_1", "DATA_PORT_1    {}".format(data_port))
+            config += content
+
         with open (c_file, 'r+') as content_file:
             content_file.seek(0)
-            content_file.write(content)
-            content_file.truncate() 
-       
+            content_file.write(config)
+            content_file.truncate()
+
         self.startTime=time.strftime("%Y-%m%dT%H:%M:%S")
         cap_env = os.environ.copy()
 
@@ -381,20 +382,20 @@ class _CaptureSession(object):
         cap_env["VMA_MTU"] = "9200"
         cap_env["VMA_RX_POLL_YIELD"] = "1"
         cap_env["VMA_RX_UDP_POLL_OS_RATIO"] = "0"
-        self.capture_log = open("%s.writing/capture.log"%self.save_dir,"a")
-        _logger.info("Capturing in /scratch/data/%s.writing"%self.save_dir[6:])
-        
+        self.capture_log.append(open("{}.writing/{}/capture.log".format(self.save_dir, dadaKey),"a"))
+        _logger.info("Capturing in {}.writing/{}"%.format(self.save_dir, dadaKey)
+
     def capture_start (self):
 
         cores=self.args.affinity[1:]
-        config_file = "/home/kat/hardware_cbf_4096chan_2pol.cfg"
+        config_file = '/home/kat/capture.conf'
         cap_env = os.environ.copy()
 
         cap_env["LD_PRELOAD"] = "libvma.so"
         cap_env["VMA_MTU"] = "9200"
         cap_env["VMA_RX_POLL_YIELD"] = "1"
         cap_env["VMA_RX_UDP_POLL_OS_RATIO"] = "0"
-        cmd = ["numactl","-C","%i,%i,%i"%(cores[0],cores[1],cores[2]),"meerkat_udpmergedb", "-b","%i,%i"%(cores[1],cores[2]),config_file,"-f", "spead"]
+        cmd = ["numactl","-C","%i,%i,%i"%(cores[0],cores[1],cores[2]),"meerkat_udpmerge2db", config_file, self.dadaKeys[0], self.dadaKeys[1], "-b","%i,%i"%(cores[1],cores[2]),"-f", "spead"]
         self.capture_log = open("%s.writing/capture.log"%self.save_dir,"a")
 
         #Sleep to ensure data is flowing
@@ -408,7 +409,7 @@ class _CaptureSession(object):
         _logger.info("Killing capture process")
         self._capture_process.send_signal(signal.SIGINT)
         self._capture_process.send_signal(signal.SIGINT)
-         
+
 
     #@trollius.coroutine
     def stop(self):
@@ -432,11 +433,11 @@ class _CaptureSession(object):
             _logger.info("Digifits did not stop %i"%count)
             self._digifits_process.send_signal(signal.SIGINT)
             time.sleep(1)
-            count+=1 
+            count+=1
         if self._dspsr_process is not None and self._dspsr_process.poll() is None:
             self._dspsr_process.send_signal(signal.SIGTERM)
             _logger.info("dspsr did not stop")
-        if self._dada_header_process: 
+        if self._dada_header_process:
             comm = self._dada_header_process.communicate()
             try:
                 dada_header = dict([d.split() for d in comm[0].split('\n')][:-1])
@@ -444,7 +445,7 @@ class _CaptureSession(object):
                 _logger.info("Could not parse dada header:\n%s"%str(comm))
 
         if self.backend and (self.backend == 'digifits' or self.backend == 'dspsr'):
-            try: 
+            try:
                 obs_info = open ("%s.writing/obs_info.dat"%self.save_dir, "w+")
                 obs_info.write ("observer;%s\n"%self.script_args['observer'])
                 obs_info.write ("program_block_id;%s\n"%self.script_args["program_block_id"])
@@ -457,13 +458,13 @@ class _CaptureSession(object):
                 obs_info.write ("experiment_id;%s\n"%self.script_args["experiment_id"])
                 obs_info.write ("PICOSECONDS;%s\n"%dada_header["PICOSECONDS"])
                 obs_info.write ("UTC_START;%s\n"%dada_header["UTC_START"])
-                obs_info.close() 
+                obs_info.close()
             except:
 
                 _logger.info("Obs info file not correctly filled")
 
         if self.backend and self.backend == 'digifits':
-            
+
             data_files = os.listdir("%s.writing"%self.save_dir)
             index = 0
             while index < len(data_files) and data_files[index][-2:] != 'sf':
@@ -476,7 +477,7 @@ class _CaptureSession(object):
                 start_time = Time([hduPrimary['STT_IMJD'] + hduPrimary['STT_SMJD'] / 3600.0 / 24.0],format='mjd')
                 start_time.format = 'isot'
                 self.startTime=start_time.value[0][:-3] + str(hduPrimary['STT_OFFS'])[2:]
-                 
+
 
                 _logger.info(target)
                 _logger.info(self.startTime.split('.')[0])
@@ -510,7 +511,7 @@ class _CaptureSession(object):
                 hduPrimary["DATE-OBS"]=self.startTime.split('.')[0]
                 hduPrimary["DATE"]=self.startTime
                 hduPrimary["SCANLEN"]=self.script_args['target_duration']
-                
+
                 hduSubint = data[2].header
                 hduSubint["NPOL"]=self.n_pol
                 _logger.info("n_pol = %s"%self.n_pol)
@@ -518,7 +519,7 @@ class _CaptureSession(object):
                     hduSubint["POL_TYPE"]="AA+BB"
                 if int(self.n_pol) == 4:
                     hduSubint["POL_TYPE"]="AABBCRCI"
-                hduSubint["NCHNOFFS"] = 0 
+                hduSubint["NCHNOFFS"] = 0
                 hduSubint["NSUBOFFS"] = 0
                 _logger.info("Updated fits headers")
             except:
@@ -591,7 +592,7 @@ class CaptureServer(object):
                 self._capture.capture_start()
             except Exception as e:
                 print ("Exception caught " + str(e))
-                                                        
+
     #@trollius.coroutine
     def stop_capture(self):
         """Stop capture to file, if currently running. This is a co-routine."""
@@ -753,7 +754,7 @@ class PubSubThread (threading.Thread):
     if msg['msg_data']['value'] == 'track' and self.ingest._capture_process is None and self.tracks == 2 and hasattr(self.ingest, 'driftscan') and self.ingest.driftscan:
       self.logger.info("STARTING CAPTURE")
       self.ingest.capture_start()
-      self.join() 
+      self.join()
     elif msg['msg_data']['value'] == 'track' and self.ingest._capture_process is None and self.tracks == 1 and hasattr(self.ingest, 'driftscan') and self.ingest.driftscan == False:
       self.logger.info("STARTING CAPTURE")
       self.ingest.capture_start()
